@@ -1,6 +1,8 @@
 import os
 import warnings
 from datetime import datetime
+import sys
+sys.path.append('.')
 
 
 def get_log_folder(root: str) -> str:
@@ -13,3 +15,10 @@ def get_log_folder(root: str) -> str:
     else:
         os.mkdir(log_folder)
     return log_folder
+
+
+def load_config(config_path):
+    from configs.config_loader import ConfigLoader
+    cfg_loader = ConfigLoader(config_path)
+    training_cfg = cfg_loader.init()
+    return training_cfg

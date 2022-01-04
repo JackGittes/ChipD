@@ -2,7 +2,6 @@ from typing import List, Tuple
 import torch
 import torch.nn as nn
 from layers import PriorBox, Detect
-from data.config import airbus
 
 from mcunet.build import build_from_config
 from mcunet.tinynas.nn.networks import ProxylessNASNets
@@ -14,35 +13,16 @@ from mcunet.tinynas.nn.networks import ProxylessNASNets
 
 
 class SSD(nn.Module):
-    """Single Shot Multibox Architecture
-    The network is composed of a base VGG network followed by the
-    added multibox conv layers.  Each multibox layer branches into
-        1) conv2d for class conf scores
-        2) conv2d for localization predictions
-        3) associated priorbox layer to produce default bounding
-           boxes specific to the layer's feature map size.
-    See: https://arxiv.org/pdf/1512.02325.pdf for more details.
-
-    Args:
-        phase: (string) Can be "test" or "train"
-        size: input image size
-        base: VGG16 layers for input, size of either 300 or 500
-        extras: extra layers that feed to multibox loc and conf layers
-        head: "multibox head" consists of loc and conf conv layers
-    """
-
     def __init__(self,
-                 size: Tuple[int],
+                 cfg,
                  base: nn.Module,
-                 head: nn.Module,
-                 num_classes: int):
+                 head: nn.Module):
         super(SSD, self).__init__()
 
-        self.num_classes = num_classes
-        self.cfg = airbus
+        self.num_classes = cfg.DATASET.NUM_CLASSES
+        self.cfg = cfg
         self.priorbox = PriorBox(self.cfg)
         self.priors = nn.Parameter(self.priorbox.forward(), requires_grad=False)  # updated version
-        self.size = size
 
         # SSD network
         self.backbone = base
@@ -51,31 +31,12 @@ class SSD(nn.Module):
         self.conf = nn.ModuleList(head[1])
 
         self.softmax = nn.Softmax(dim=-1)
-        self.detect = Detect(num_classes, 0, 200, 0.2, 0.45)
+        self.detect = Detect(self.cfg)
 
     def forward(self, x):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
         loc, conf = list(), list()
         sources = self.backbone(x)
 
-        # apply multibox head to source layers
         for (x, l, c) in zip(sources, self.loc, self.conf):
             loc.append(l(x).permute(0, 2, 3, 1).contiguous())
             conf.append(c(x).permute(0, 2, 3, 1).contiguous())
@@ -96,6 +57,38 @@ class SSD(nn.Module):
 # --------------------------------------------------------------------
 
 
+class DepthwiseSeparableConv(nn.Module):
+    def __init__(self, in_chns: int, out_chns: int, stride: int, padding: int):
+        super().__init__()
+        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_chns, out_channels=in_chns,
+                                            kernel_size=3,
+                                            stride=stride, padding=padding, groups=in_chns),
+                                  nn.BatchNorm2d(in_chns),
+                                  nn.ReLU6(),
+                                  nn.Conv2d(in_channels=in_chns, out_channels=out_chns,
+                                            kernel_size=1, stride=1, padding=0),
+                                  nn.BatchNorm2d(out_chns),
+                                  nn.ReLU6())
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class MobileNetV2Backbone(nn.Module):
+    def __init__(self, net: nn.Module):
+        super().__init__()
+        self.features = net.features[:14]
+
+        self.level_2 = DepthwiseSeparableConv(in_chns=72, out_chns=144, stride=1, padding=1)
+        self.level_3 = DepthwiseSeparableConv(in_chns=144, out_chns=144, stride=1, padding=1)
+
+    def forward(self, x):
+        x1 = self.features(x)
+        x2 = self.level_2(x1)
+        x3 = self.level_3(x2)
+        return [x1, x2, x3]
+
+
 class MCUBackbone(nn.Module):
     def __init__(self, basenet: ProxylessNASNets):
         super().__init__()
@@ -104,7 +97,7 @@ class MCUBackbone(nn.Module):
 
         # for final scale level features
         self.conv = nn.Sequential(nn.Conv2d(in_channels=96, out_channels=96,
-                                            kernel_size=3, padding=1, stride=2, groups=96),
+                                            kernel_size=3, padding=1, stride=1, groups=96),
                                   nn.BatchNorm2d(96),
                                   nn.ReLU6(),
                                   nn.Conv2d(in_channels=96, out_channels=96,
@@ -160,21 +153,30 @@ def prediction_head(backbone_channels: List[int],
     return (loc_layers, conf_layers)
 
 
-# -----------------------------------------------------------------
-#    Anchor head
-# -----------------------------------------------------------------
+def build_ssd(cfg):
+    from models.mobilenetv2 import MobileNetV2
+    net = MobileNetV2(num_classes=1000, width_mult=0.75)
+    net.load_state_dict(torch.load('weight/mobilenetv2_0.75-dace9791.pth'))
+    backbone = MobileNetV2Backbone(net)
 
-mbox = {
-    '256': [30, 30, 30],  # number of boxes per feature map location
-}
+    head = prediction_head(cfg.MODEL.FEATURE_CHANNELS,
+                           cfg.ANCHOR.NUM_PER_LEVEL,
+                           cfg.DATASET.NUM_CLASSES,
+                           True)
+    return SSD(cfg, backbone, head)
 
 
-def build_ssd(args):
-    num_classes = args.num_classes
-    input_size = args.size
-
-    net = build_from_config(args)
-    backbone = MCUBackbone(net)
-
-    head = prediction_head([48, 96, 96], mbox[str(input_size)], num_classes, args.light_head)
-    return SSD(input_size, backbone, head, num_classes)
+if __name__ == "__main__":
+    class Empty:
+        pass
+    Arg = Empty()
+    Arg.num_classes = 2
+    Arg.size = 256
+    Arg.light_head = True
+    ppp = build_ssd(Arg)
+    print(ppp)
+    for name, m in ppp.named_modules():
+        print(name)
+    from torchsummary import summary
+    summary(ppp, (3, 256, 256), device='cpu')
+    torch.save(ppp.state_dict(), 'name.pth')

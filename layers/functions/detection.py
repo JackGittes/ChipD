@@ -1,25 +1,16 @@
 import torch
 from ..box_utils import decode, nms
-from data.config import airbus as cfg
 
 
 class Detect(torch.nn.Module):
-    """At test time, Detect is the final layer of SSD.  Decode location preds,
-    apply non-maximum suppression to location predictions based on conf
-    scores and threshold to a top_k number of output predictions for both
-    confidence score and locations.
-    """
-    def __init__(self, num_classes, bkg_label, top_k, conf_thresh, nms_thresh):
+    def __init__(self, cfg):
         super().__init__()
-        self.num_classes = num_classes
-        self.background_label = bkg_label
-        self.top_k = top_k
-        # Parameters used in nms.
-        self.nms_thresh = nms_thresh
-        if nms_thresh <= 0:
-            raise ValueError('nms_threshold must be non negative.')
-        self.conf_thresh = conf_thresh
-        self.variance = cfg['variance']
+        self.num_classes = cfg.DATASET.NUM_CLASSES
+        self.background_label = cfg.DETECT.BACKGROUND_LABEL
+        self.top_k = cfg.DETECT.TOP_K
+        self.nms_thresh = cfg.DETECT.NMS_THRESH
+        self.conf_thresh = cfg.DETECT.CONFIDENCE_THRESH
+        self.variance = cfg.ENCODE.VARIANCE
 
     @torch.no_grad()
     def forward(self, loc_data, conf_data, prior_data):

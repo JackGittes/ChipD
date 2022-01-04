@@ -141,7 +141,8 @@ def encode(matched, priors, variances):
     g_cxcy /= (variances[0] * priors[:, 2:])
     # match wh / prior wh
     g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-    g_wh = torch.log(g_wh) / variances[1]
+    # g_wh = torch.log(g_wh) / variances[1]
+    g_wh = torch.sqrt(g_wh) / variances[1]
     # return target for smooth_l1_loss
     return torch.cat([g_cxcy, g_wh], 1)  # [num_priors,4]
 
@@ -160,9 +161,12 @@ def decode(loc, priors, variances):
         decoded bounding box predictions
     """
 
+    # boxes = torch.cat((
+    #     priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:],
+    #     priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
     boxes = torch.cat((
         priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:],
-        priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+        priors[:, 2:] * torch.pow(loc[:, 2:] * variances[1], 2)), 1)
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
     return boxes

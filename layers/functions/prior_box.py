@@ -12,29 +12,24 @@ class PriorBox(object):
     """
     def __init__(self, cfg):
         super(PriorBox, self).__init__()
-        self.image_size = cfg['min_dim']
-        # number of priors for feature map location (either 4 or 6)
-        self.num_priors = len(cfg['aspect_ratios'])
-        self.variance = cfg['variance'] or [0.1]
-        self.feature_maps = cfg['feature_maps']
-        self.min_sizes = cfg['min_sizes']
-        self.max_sizes = cfg['max_sizes']
-        self.steps = cfg['steps']
-        self.aspect_ratios = cfg['aspect_ratios']
-        self.clip = cfg['clip']
-        self.version = cfg['name']
-        self.size_step = cfg['size_step']
-        for v in self.variance:
-            if v <= 0:
-                raise ValueError('Variances must be greater than 0')
-        self.gen_type = cfg['anchor_gen']
+        self.image_size = cfg.MODEL.INPUT_SIZE
+        self.variance = cfg.ENCODE.VARIANCE
+        self.feature_maps = cfg.MODEL.FEATURE_SIZE
+        self.min_sizes = cfg.ANCHOR.MIN_SIZES
+        self.max_sizes = cfg.ANCHOR.MAX_SIZES
+        self.steps = cfg.ANCHOR.STEPS
+        self.aspect_ratios = cfg.ANCHOR.ASPECT_RATIOS
+        self.clip = bool(cfg.ANCHOR.CLIP)
+        self.size_step = cfg.ANCHOR.SIZE_STEP
+
+        self.gen_type = cfg.ANCHOR.GEN_METHOD
         assert self.gen_type in ['auto', 'manual']
-        self.anchor_root = cfg['anchor_dir']
+        self.anchor_root = cfg.ANCHOR.SAVE_PATH
 
         if self.gen_type == 'auto':
             assert os.path.isdir(self.anchor_root), 'Anchor file path not found.'
             assert os.path.isfile(os.path.join(self.anchor_root, 'anchor.json'))
-        self.anchor_shapes = cfg['anchor_per_level']
+        self.anchor_shapes = cfg.ANCHOR.NUM_PER_LEVEL
 
     @torch.no_grad()
     def forward(self):
@@ -75,13 +70,16 @@ class PriorBox(object):
     def manual(self):
         mean = list()
         for k, f in enumerate(self.feature_maps):
+            all_sizes = [self.min_sizes[k] + i * (self.max_sizes[k] - self.min_sizes[k]) / self.size_step
+                         for i in range(self.size_step)]
+            # all_sizes.append(self.max_sizes[k])
+            all_aspect_ratios = self.aspect_ratios[k]
             for i, j in product(range(f), repeat=2):
                 f_k = self.image_size / self.steps[k]
                 # unit center x,y
                 cx = (j + 0.5) / f_k
                 cy = (i + 0.5) / f_k
-                all_sizes = [self.min_sizes[k] + i * (self.max_sizes[k] - self.min_sizes[k]) / self.size_step
-                             for i in range(self.size_step)]
+
                 for s_k in all_sizes:
                     # aspect_ratio: 1
                     # rel size: min_size
@@ -90,10 +88,11 @@ class PriorBox(object):
                     mean += [cx, cy, s_k, s_k]
                     # aspect_ratio: 1
                     # rel size: sqrt(s_k * s_(k+1))
-                    s_k_prime = sqrt(s_k * (self.max_sizes[k] / self.image_size))
+                    s_k_prime = self.max_sizes[k] / self.image_size
                     mean += [cx, cy, s_k_prime, s_k_prime]
                     # rest of aspect ratios
-                    for ar in self.aspect_ratios[k]:
+
+                    for ar in all_aspect_ratios:
                         mean += [cx, cy, s_k * sqrt(ar), s_k / sqrt(ar)]
                         mean += [cx, cy, s_k / sqrt(ar), s_k * sqrt(ar)]
         return mean

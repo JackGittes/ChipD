@@ -4,73 +4,45 @@ import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.init as init
 import torch.utils.data as data
 import argparse
 
 from tensorboardX import SummaryWriter
 
-from utils.utils import get_log_folder
+from utils.utils import get_log_folder, load_config
 from data import detection_collate
 from data.airbus import AirbusDetection
-from data.config import airbus, MEANS
 from utils.augmentations import SSDAugmentation
 from layers.modules import MultiBoxLoss
 from mssd import SSD, build_ssd
 
+import logging
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Single Shot MultiBox Detector Training With Pytorch')
-
-    # dataset settings
-    parser.add_argument('--dataset', default='Airbus', choices=['Airbus'],
-                        type=str, help='VOC or COCO')
-    parser.add_argument('--dataset_root', default=r'H:\Dataset\ShipDET-Horizon',
-                        help='Dataset root directory path')
-    parser.add_argument('--num_classes', default=2, type=int)
-
-    # model settings
-    parser.add_argument('--net_config', default=r'mcunet\assets\configs\mcunet-320kb-1mb_imagenet_vp.json',
-                        help='Pretrained base model')
-    parser.add_argument('--size', default=256, type=int, help='Input image size.')
-    parser.add_argument('--light_head', default=True, type=bool)
-
-    # training settings
-    parser.add_argument('--phase', default='train', choices=['train', 'test'])
-    parser.add_argument('--batch_size', default=32, type=int,
-                        help='Batch size for training')
-    parser.add_argument('--resume', default=None, type=str,
-                        help='Checkpoint state_dict file to resume training from')
-    parser.add_argument('--start_iter', default=0, type=int,
-                        help='Resume training at this iter')
-    parser.add_argument('--num_workers', default=12, type=int,
-                        help='Number of workers used in dataloading')
-    parser.add_argument('--cuda_disable', action='store_true')
-
-    # optimizer settings
-    parser.add_argument('--lr', '--learning-rate', default=1e-3, type=float,
-                        help='initial learning rate')
-    parser.add_argument('--momentum', default=0.9, type=float,
-                        help='Momentum value for optim')
-    parser.add_argument('--weight_decay', default=5e-4, type=float,
-                        help='Weight decay for SGD')
-    parser.add_argument('--gamma', default=0.1, type=float,
-                        help='Gamma update for SGD')
-
-    # logger settings
-    parser.add_argument('--log_dir', default='log', type=str, help='Directory for saving training log.')
+    parser.add_argument('--config_path', default='experiment/default.yml', type=str)
     args = parser.parse_args()
     return args
 
 
 def train(args):
-    if args.dataset == 'Airbus':
-        cfg = airbus
-        dataset = AirbusDetection(root=args.dataset_root,
-                                  transform=SSDAugmentation(cfg['min_dim'], MEANS), train=True)
-    log_dir = get_log_folder(args.log_dir)
+    cfg = load_config(args.config_path)
+    dataset = AirbusDetection(root=cfg.DATASET.ROOT,
+                              transform=SSDAugmentation(cfg.MODEL.INPUT_SIZE), train=True)
+    log_dir = get_log_folder(cfg.LOGGER.ROOT)
+    logging.basicConfig(level=logging.INFO,
+                        filename=os.path.join(log_dir, 'train.log'),
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+    logging.getLogger().addHandler(logging.StreamHandler())
+
+    import shutil
+    logger.info('Backup training configuration to: {}'.format(log_dir))
+    shutil.copy(args.config_path, os.path.join(log_dir, 'default.yml'))
+
     writer = SummaryWriter(log_dir=log_dir)
-    ssd_net: SSD = build_ssd(args)
+    ssd_net: SSD = build_ssd(cfg)
 
     priors = ssd_net.priors
     net = torch.nn.DataParallel(ssd_net)
@@ -79,47 +51,37 @@ def train(args):
     net = net.cuda()
     priors = priors.cuda()
 
-    if not args.resume:
-        print('Initializing weights...')
-        # initialize newly added layers' weights with xavier method
-        ssd_net.loc.apply(weights_init)
-        ssd_net.conf.apply(weights_init)
+    logger.info('Initializing weights...')
+    # initialize newly added layers' weights with xavier method
+    ssd_net.loc.apply(weights_init)
+    ssd_net.conf.apply(weights_init)
 
-    optimizer = optim.AdamW(net.parameters(), lr=args.lr,
-                            weight_decay=args.weight_decay)
-    criterion = MultiBoxLoss(cfg['num_classes'], 0.5, True, 0, True, 3, 0.5,
-                             False, not args.cuda_disable)
+    optimizer = optim.SGD(net.parameters(),
+                          lr=cfg.OPTIMIZER.LR,
+                          weight_decay=cfg.OPTIMIZER.WEIGHT_DECAY)
+
+    criterion = MultiBoxLoss(cfg)
 
     net.train()
-    # loss counters
-    loc_loss = 0
-    conf_loss = 0
-    epoch = 0
-    print('Loading the dataset...')
 
-    epoch_size = len(dataset) // args.batch_size
-    print('Training SSD on:', dataset.name)
-    print('Using the specified args:')
-    print(args)
+    logger.info('Loading the dataset...')
+    logger.info('Training SSD on: {}'.format(dataset.name))
+    logger.info('Using the specified args:')
+    logger.info(cfg)
 
     step_index = 0
-    data_loader = data.DataLoader(dataset, args.batch_size,
-                                  num_workers=args.num_workers,
+    data_loader = data.DataLoader(dataset, cfg.TRAINING.BATCH_SIZE,
+                                  num_workers=cfg.TRAINING.NUM_WORKERS,
                                   shuffle=True, collate_fn=detection_collate,
                                   pin_memory=True)
     # create batch iterator
     batch_iterator = iter(data_loader)
-    for iteration in range(args.start_iter, cfg['max_iter']):
+    for iteration in range(cfg.TRAINING.START_ITER, cfg.TRAINING.MAX_ITER):
         t0 = time.time()
-        if iteration != 0 and (iteration % epoch_size == 0):
-            # reset epoch loss counters
-            loc_loss = 0
-            conf_loss = 0
-            epoch += 1
 
-        if iteration in cfg['lr_steps']:
+        if iteration in cfg.SCHEDULER.LR_STEPS:
             step_index += 1
-            adjust_learning_rate(args, optimizer, args.gamma, step_index)
+            adjust_learning_rate(cfg.OPTIMIZER.LR, optimizer, cfg.SCHEDULE.GAMMA, step_index)
 
         # load train data
         try:
@@ -144,31 +106,25 @@ def train(args):
         optimizer.step()
         t1 = time.time()
 
-        loc_loss += loss_l.data.item()
-        conf_loss += loss_c.data.item()
-
         if iteration % 10 == 0:
-            print('timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data.item()), end=' ')
+            logger.info('timer: %.4f sec.' % (t1 - t0) + 'iter ' + repr(iteration) +
+                        ' || Loss: %.4f ||' % (loss.data.item()))
             writer.add_scalar(tag='loss', scalar_value=float(loss.data.item()), global_step=iteration)
             writer.add_scalar(tag='conf', scalar_value=float(loss_c.data.item()), global_step=iteration)
             writer.add_scalar(tag='loc', scalar_value=float(loss_l.data.item()), global_step=iteration)
-        if iteration != 0 and iteration % 5000 == 0:
-            print('Saving state, iter:', iteration)
+        if iteration != 0 and iteration % cfg.LOGGER.SAVE_INTERVAL == 0:
+            logger.info('Saving state, iter: {}'.format(iteration))
             torch.save(ssd_net.state_dict(), os.path.join(log_dir, repr(iteration) + '.pth'))
+            torch.save(ssd_net.state_dict(), os.path.join(log_dir, 'latest.pth'))
+
     torch.save(ssd_net.state_dict(),
                os.path.join(log_dir, "final.pth"))
 
 
-def adjust_learning_rate(args, optimizer, gamma, step):
-    """Sets the learning rate to the initial LR decayed by 10 at every
-        specified step
-    # Adapted from PyTorch Imagenet example:
-    # https://github.com/pytorch/examples/blob/master/imagenet/main.py
-    """
-    lr = args.lr * (gamma ** (step))
+def adjust_learning_rate(lr, optimizer, gamma, step):
+    new_lr = lr * (gamma ** (step))
     for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
+        param_group['lr'] = new_lr
 
 
 def xavier(param):
