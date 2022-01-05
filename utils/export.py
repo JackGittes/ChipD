@@ -4,17 +4,19 @@ import sys
 sys.path.append('.')
 
 from mssd import build_ssd
-from demo import parse_args
+from utils import load_config
 
 
-def export_onnx(args,
+def export_onnx(cfg,
                 save_path: str) -> None:
     assert os.path.isdir(save_path), "Given path does not exist."
 
     full_path = os.path.join(save_path, 'ssd.onnx')
-    ssd = build_ssd(args)
+    ssd = build_ssd(cfg)
     torch.onnx.export(ssd,
-                      torch.randn((1, 3, args.size, args.size)),
+                      torch.randn((1, 3,
+                                   cfg.MODEL.INPUT_SIZE,
+                                   cfg.MODEL.INPUT_SIZE)),
                       full_path,
                       export_params=True,
                       opset_version=10,
@@ -24,5 +26,5 @@ def export_onnx(args,
 
 
 if __name__ == "__main__":
-    parsed_args = parse_args()
-    export_onnx(parsed_args, 'export')
+    cfg = load_config('experiment/default.yml')
+    export_onnx(cfg, 'export')

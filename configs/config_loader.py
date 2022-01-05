@@ -30,7 +30,7 @@ def recursive_init(cfg: ConfigTemplate, cfg_dict: dict) -> None:
     res = list(filter(lambda x: not x.startswith('_'), attrs))
     if len(res) == 0:
         return
-    assert set(res) == set(cfg_dict.keys()), "Configuration conflicts between "\
+    assert set(cfg_dict.keys()).issubset(set(res)), "Configuration conflicts between "\
         "the template and yaml dict."
     assert len(set(res)) == len(res), "Duplicated configuration may be found."
 

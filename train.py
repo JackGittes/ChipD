@@ -81,7 +81,7 @@ def train(args):
 
         if iteration in cfg.SCHEDULER.LR_STEPS:
             step_index += 1
-            adjust_learning_rate(cfg.OPTIMIZER.LR, optimizer, cfg.SCHEDULE.GAMMA, step_index)
+            adjust_learning_rate(cfg.OPTIMIZER.LR, optimizer, cfg.SCHEDULER.GAMMA, step_index)
 
         # load train data
         try:
@@ -115,7 +115,7 @@ def train(args):
         if iteration != 0 and iteration % cfg.LOGGER.SAVE_INTERVAL == 0:
             logger.info('Saving state, iter: {}'.format(iteration))
             torch.save(ssd_net.state_dict(), os.path.join(log_dir, repr(iteration) + '.pth'))
-            torch.save(ssd_net.state_dict(), os.path.join(log_dir, 'latest.pth'))
+            torch.save(ssd_net.state_dict(), os.path.join(cfg.LOGGER.ROOT, 'latest.pth'))
 
     torch.save(ssd_net.state_dict(),
                os.path.join(log_dir, "final.pth"))

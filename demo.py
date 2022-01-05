@@ -138,7 +138,7 @@ if __name__ == '__main__':
     import time
     s = time.time()
     cfg_path = 'experiment/default.yml'
-    weight_root = 'log/log-2022-01-03-16-46-21'
+    weight_root = 'log/log-2022-01-05-01-57-14'
     full_weight_path = os.path.join(weight_root, 'latest.pth')
     det = demo(cfg_path, weight_path=full_weight_path, cuda=True)
     e = time.time()
