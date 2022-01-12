@@ -9,8 +9,64 @@ import sys
 sys.path.append('.')
 
 from data.airbus import AirbusDetection
-from layers.functions.prior_box import PriorBox
 from utils import load_config
+
+
+def generate_anchor_by_boxes():
+    cfg = load_config('experiment/default.yml')
+
+    def centerize(input_bins: np.ndarray):
+        centers = [(input_bins[start_idx] + input_bins[start_idx + 1]) / 2.
+                   for start_idx in range(0, input_bins.size - 1)]
+        return np.array(centers)
+
+    save_path = cfg.ANCHOR.SAVE_PATH
+    if not os.path.isdir(save_path):
+        warnings.warn(RuntimeWarning("Given save path does not exist."))
+
+    dataset = AirbusDetection(cfg.DATASET.ROOT, train=True)
+
+    box_sizes = list()
+    for i in range(len(dataset)):
+        _, target = dataset.pull_anno(i)
+        box_sizes.extend([[item[2] - item[0], item[3] - item[1]] for item in target])
+    all_boxes = np.array(box_sizes)
+    all_boxes /= 768.
+
+    unsorted_aspects = all_boxes[:, 0] / all_boxes[:, 1]
+
+    all_areas = all_boxes[:, 0] * all_boxes[:, 1]
+    splitted_area = np.array_split(np.sort(all_areas), len(cfg.ANCHOR.NUM_PER_LEVEL))
+    sorted_aspect = unsorted_aspects[np.argsort(all_areas)]
+    aspect_list = np.array_split(sorted_aspect, len(cfg.ANCHOR.NUM_PER_LEVEL))
+
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(2, len(cfg.ANCHOR.NUM_PER_LEVEL))
+
+    anchors = list()
+    for idx, num_shape in enumerate(cfg.ANCHOR.NUM_PER_LEVEL):
+        if len(cfg.ANCHOR.NUM_PER_LEVEL) == 1:
+            cur_ax_asp = ax[0]
+            cur_ax_area = ax[1]
+        else:
+            cur_ax_asp = ax[0, idx]
+            cur_ax_area = ax[1, idx]
+        _, aspect_bins, _ = cur_ax_asp.hist(aspect_list[idx], bins=num_shape // 2)
+        _, area_bins, _ = cur_ax_area.hist(splitted_area[idx], bins=num_shape // 2)
+
+        aspect_bins = centerize(aspect_bins)
+        area_bins = centerize(area_bins)
+        w = np.sqrt(aspect_bins * area_bins).reshape(-1, 1)
+        h = np.sqrt(area_bins / aspect_bins).reshape(-1, 1)
+
+        unsorted_anchors = np.vstack([np.hstack([w, h]), np.hstack([h, w])])
+        sorted_anchors = unsorted_anchors[np.argsort(unsorted_anchors[:, 0] * unsorted_anchors[:, 1])]
+        anchors.append(sorted_anchors)
+    anchor_list = np.vstack(anchors).tolist()
+    if os.path.isdir(save_path):
+        with open(os.path.join(save_path, 'anchor.json'), 'w') as fp:
+            json.dump(anchor_list, fp)
+    fig.savefig(os.path.join(cfg.ANCHOR.VISUAL_PATH, 'example.png'))
 
 
 def analyze_shapes():
@@ -19,7 +75,7 @@ def analyze_shapes():
     if not os.path.isdir(save_path):
         warnings.warn(RuntimeWarning("Given save path does not exist."))
 
-    dataset = AirbusDetection(cfg.DATASET.ROOT)
+    dataset = AirbusDetection(cfg.DATASET.ROOT, train=True)
     anchor_num = sum(cfg.ANCHOR.NUM_PER_LEVEL)
 
     box_sizes = list()
@@ -106,17 +162,12 @@ def kmeans(boxes, k, dist=np.median):
     while True:
         for row in range(rows):
             distances[row] = 1 - iou(boxes[row], clusters)
-
         nearest_clusters = np.argmin(distances, axis=1)
-
         if (last_clusters == nearest_clusters).all():
             break
-
         for cluster in range(k):
             clusters[cluster] = dist(boxes[nearest_clusters == cluster], axis=0)
-
         last_clusters = nearest_clusters
-
     return clusters
 
 
@@ -137,37 +188,32 @@ def draw_bboxes(img: np.ndarray,
 def draw_anchor():
     cfg = load_config('experiment/default.yml')
     size = cfg.MODEL.INPUT_SIZE
-    scales = cfg.ANCHOR.STEPS
     num_anchor_per_scale = cfg.ANCHOR.NUM_PER_LEVEL
 
-    pb = PriorBox(cfg)
-    anchors = pb.forward()
-    print(anchors.shape)
+    with open(os.path.join(cfg.ANCHOR.SAVE_PATH, 'anchor.json'), 'r') as fp:
+        anchors = json.load(fp)
 
-    split_point = [0]
-    for scale, anchor_num in zip(scales, num_anchor_per_scale):
-        split_point.append(split_point[-1] + scale ** 2 * anchor_num)
-    all_boxes = list()
-    for idx in range(len(split_point) - 1):
-        boxes = anchors[split_point[idx]: split_point[idx + 1]]
-        boxes_np = boxes[:num_anchor_per_scale[idx], :].numpy()
-        all_boxes.append(np.hstack([np.reshape(boxes_np[:, dim] * size, (-1, 1))
-                                    for dim in range(4)]))
-    all_boxes = np.vstack(all_boxes)
+    anchors_np = np.array(anchors)
+    all_boxes = np.zeros((len(anchors), 4))
     all_boxes[:, 0] = size // 2
     all_boxes[:, 1] = size // 2
+    all_boxes[:, 2] = anchors_np[:, 0] * size
+    all_boxes[:, 3] = anchors_np[:, 1] * size
     empty_image = np.zeros((size, size, 3), dtype=np.uint8)
     draw_bboxes(empty_image, all_boxes)
-    cv2.imwrite('anchors.png', empty_image)
+    cv2.imwrite(os.path.join(cfg.ANCHOR.VISUAL_PATH, 'anchors.png'), empty_image)
+    print("Total anchors:", anchors_np.shape[0])
 
     count = 0
     for idx, num_anchor in enumerate(num_anchor_per_scale):
         empty_image = np.zeros((size, size, 3), dtype=np.uint8)
         draw_bboxes(empty_image, all_boxes[count: count + num_anchor, :])
         count += num_anchor
-        cv2.imwrite('level_{}.png'.format(idx), empty_image)
+        cv2.imwrite(os.path.join(cfg.ANCHOR.VISUAL_PATH, 'level_{}.png'.format(idx)),
+                    empty_image)
 
 
 if __name__ == "__main__":
     analyze_shapes()
     draw_anchor()
+    # generate_anchor_by_boxes()

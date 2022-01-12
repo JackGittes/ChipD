@@ -5,18 +5,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from ..box_utils import match, log_sum_exp
+from criterion.build import build_conf
 
 
 class MultiBoxLoss(nn.Module):
     def __init__(self, cfg):
         super(MultiBoxLoss, self).__init__()
-        self.use_gpu = True
         self.num_classes = cfg.DATASET.NUM_CLASSES
         self.threshold = cfg.LOSS.POS_OVERLAP_THRESH
         self.negpos_ratio = cfg.LOSS.NEG_POS_RATIO
         self.loc_weight = cfg.LOSS.LOC_WEIGHT
         self.conf_weight = cfg.LOSS.CONF_WEIGHT
         self.variance = cfg.ENCODE.VARIANCE
+        self.config = cfg
+
+        self.conf_loss = build_conf(cfg)
+        self.loc_loss = NotImplemented
 
     def forward(self, predictions, targets) -> Tuple[torch.Tensor]:
         """Multibox Loss
@@ -42,11 +46,10 @@ class MultiBoxLoss(nn.Module):
             truths = targets[idx][:, :-1].data
             labels = targets[idx][:, -1].data
             defaults = priors.data
-            match(self.threshold, truths, defaults, self.variance, labels,
+            match(self.config, self.threshold, truths, defaults, self.variance, labels,
                   loc_t, conf_t, idx)
-        if self.use_gpu:
-            loc_t = loc_t.cuda()
-            conf_t = conf_t.cuda()
+        loc_t = loc_t.cuda()
+        conf_t = conf_t.cuda()
         # wrap targets
         loc_t = Variable(loc_t, requires_grad=False)
         conf_t = Variable(conf_t, requires_grad=False)
@@ -80,7 +83,9 @@ class MultiBoxLoss(nn.Module):
         neg_idx = neg.unsqueeze(2).expand_as(conf_data)
         conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
-        loss_c = F.cross_entropy(conf_p, targets_weighted, reduction='sum')
+        # loss_c = F.cross_entropy(conf_p, targets_weighted, reduction='sum')
+        # loss_c = self.focal(conf_p, targets_weighted)
+        loss_c = self.conf_loss(conf_p, targets_weighted)
 
         # Sum of losses: L(x,c,l,g) = (Lconf(x, c) + αLloc(x,l,g)) / N
 

@@ -1,3 +1,11 @@
+"""
+Author: Zhao Mingxin
+Date: 01/08/2022
+
+Description: configuration loader for loading yaml configs and converting it to
+    a configuration object defined in `configs/default.py`.
+"""
+
 import os
 import copy
 import yaml
@@ -27,14 +35,14 @@ class ConfigLoader:
 
 def recursive_init(cfg: ConfigTemplate, cfg_dict: dict) -> None:
     attrs = cfg.__dir__()
-    res = list(filter(lambda x: not x.startswith('_'), attrs))
-    if len(res) == 0:
-        return
-    assert set(cfg_dict.keys()).issubset(set(res)), "Configuration conflicts between "\
+    cfg_attr = list(filter(lambda x: not x.startswith('_'), attrs))
+    cfg_dict_key = list(cfg_dict.keys())
+    assert set(cfg_dict_key).issubset(cfg_attr), "Configuration conflicts between "\
         "the template and yaml dict."
-    assert len(set(res)) == len(res), "Duplicated configuration may be found."
+    if len(cfg_dict_key) == 0:
+        return
 
-    for attr in res:
+    for attr in cfg_dict_key:
         child_cfg = getattr(cfg, attr)
         if isinstance(child_cfg, ConfigTemplate):
             recursive_init(child_cfg, cfg_dict.get(attr))

@@ -1,5 +1,6 @@
 import torch
-from ..box_utils import decode, nms
+from ops.nms import nms
+from ops.box import decode
 
 
 class Detect(torch.nn.Module):
@@ -18,11 +19,11 @@ class Detect(torch.nn.Module):
         """
         Args:
             loc_data: (tensor) Loc preds from loc layers
-                Shape: [batch,num_priors*4]
+                Shape: [batch,num_priors * 4]
             conf_data: (tensor) Shape: Conf preds from conf layers
-                Shape: [batch*num_priors,num_classes]
+                Shape: [batch * num_priors,num_classes]
             prior_data: (tensor) Prior boxes and variances from priorbox layers
-                Shape: [1,num_priors,4]
+                Shape: [1,num_priors, 4]
         """
         num = loc_data.size(0)  # batch size
         num_priors = prior_data.size(0)
@@ -33,7 +34,6 @@ class Detect(torch.nn.Module):
         # Decode predictions into bboxes.
         for i in range(num):
             decoded_boxes = decode(self.config, loc_data[i], prior_data, self.variance)
-            decoded_boxes = decoded_boxes.clamp(0, 1)
             # For each class, perform nms
             conf_scores = conf_preds[i].clone()
 

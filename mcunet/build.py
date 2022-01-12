@@ -3,6 +3,9 @@ import argparse
 import torch
 from torch import nn
 
+import sys
+sys.path.append('.')
+
 from mcunet.tinynas.nn.networks import ProxylessNASNets
 
 
@@ -10,7 +13,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # architecture setting
     parser.add_argument('-a', '--arch', metavar='ARCH', default='proxyless')
-    parser.add_argument('--net_config', default=r'F:\PythonProject\ssd.pytorch-master\ssd.pytorch-master\mcunet\assets\configs\mcunet-320kb-1mb_imagenet_vp.json', type=str)
+    parser.add_argument('--net_config', default=r'/home/zhaomingxin/Documents/codebase/mssd_vp/mcunet/assets/configs/mcunet-256kb-1mb_imagenet.json', type=str)
     parser.add_argument('--weight_path', default='weights/mcunet-320kb-1mb_imagenet.pth', type=str)
 
     args = parser.parse_args()
@@ -55,16 +58,16 @@ if __name__ == '__main__':
     net = build_from_config(parsed_args)
     # net.load_state_dict(torch.load(parsed_args.weight_path)["state_dict"])
 
-    net0 = MCUBackbone(net)
-    summary(net0, (3, 256, 256), device='cpu')
+    # net0 = MCUBackbone(net)
+    # summary(net0, (3, 256, 256), device='cpu')
 
-    # torch.onnx.export(net0,               # model being run
-    #                   torch.randn((1, 3, 256, 256)),                         # model input (or a tuple for multiple inputs)
-    #                   "mcunet_backbone.onnx",   # where to save the model (can be a file or file-like object)
-    #                   export_params=True,        # store the trained parameter weights inside the model file
-    #                   opset_version=10,          # the ONNX version to export the model to
-    #                   do_constant_folding=True,  # whether to execute constant folding for optimization
-    #                   input_names = ['input'],   # the model's input names
-    #                   output_names = ['output'], # the model's output names
-    #                   )
-    print(net0)
+    torch.onnx.export(net,               # model being run
+                      torch.randn((1, 3, 128, 128)),                         # model input (or a tuple for multiple inputs)
+                      "mcunet.onnx",   # where to save the model (can be a file or file-like object)
+                      export_params=True,        # store the trained parameter weights inside the model file
+                      opset_version=10,          # the ONNX version to export the model to
+                      do_constant_folding=True,  # whether to execute constant folding for optimization
+                      input_names = ['input'],   # the model's input names
+                      output_names = ['output'], # the model's output names
+                      )
+    # print(net0)
