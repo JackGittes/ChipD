@@ -69,4 +69,5 @@ class IOULoss(nn.Module):
 
 
 def build_iou_loss(cfg):
+    return None
     return IOULoss(cfg, size_sum=cfg.LOSS.IOU.SIZE_SUM)

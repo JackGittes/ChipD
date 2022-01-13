@@ -55,6 +55,7 @@ def generate_anchor_by_boxes():
         _, area_bins, _ = cur_ax_area.hist(splitted_area[idx], bins=num_shape // 2)
 
         aspect_bins = centerize(aspect_bins)
+        print(aspect_bins)
         area_bins = centerize(area_bins)
         w = np.sqrt(aspect_bins * area_bins).reshape(-1, 1)
         h = np.sqrt(area_bins / aspect_bins).reshape(-1, 1)

@@ -204,6 +204,12 @@ _C.DETECT.NMS_THRESH = FormattedFloat(0.5)
 _C.DETECT.TOP_K = 200
 _C.DETECT.BACKGROUND_LABEL = 0
 
+# ----------------------------------------------
+# evaluation configs
+# ----------------------------------------------
+_C.EVAL = ConfigTemplate()
+_C.EVAL.RESULT_PATH = "result"
+
 
 __yaml_str = _C._yaml()
 with open('configs/default.yml', 'w') as fp:

@@ -73,9 +73,7 @@ class InvertedResidual(nn.Module):
                 nn.BatchNorm2d(hidden_dim),
                 nn.ReLU6(inplace=True),
                 # dw
-                nn.ZeroPad2d((0, 2, 0, 2)),
-                # nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False),
-                nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 0, groups=hidden_dim, bias=False),
+                nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False),
                 nn.BatchNorm2d(hidden_dim),
                 nn.ReLU6(inplace=True),
                 # pw-linear
@@ -105,8 +103,7 @@ class MobileNetV2(nn.Module):
 
         # building first layer
         input_channel = _make_divisible(32 * width_mult, 4 if width_mult == 0.1 else 8)
-        layers = [conv_3x3_bn(3, input_channel, 1)]
-        # layers = [conv_3x3_bn(3, input_channel, 2)]
+        layers = [conv_3x3_bn(3, input_channel, 2)]
         # building inverted residual blocks
         block = InvertedResidual
         for t, c, n, s in self.cfgs:
@@ -151,48 +148,3 @@ def mobilenetv2(**kwargs):
     Constructs a MobileNet V2 model
     """
     return MobileNetV2(**kwargs)
-
-
-if __name__ == '__main__':
-    net = MobileNetV2(num_classes=1000, width_mult=0.75)
-    from torchsummary import summary
-
-    class DepthwiseSeparableConv(nn.Module):
-        def __init__(self, in_chns: int, out_chns: int, stride: int, padding: int):
-            super().__init__()
-            self.conv = nn.Sequential(nn.Conv2d(in_channels=in_chns, out_channels=in_chns,
-                                                kernel_size=3,
-                                                stride=stride, padding=padding, groups=in_chns),
-                                      nn.BatchNorm2d(in_chns),
-                                      nn.ReLU6(),
-                                      nn.Conv2d(in_channels=in_chns, out_channels=out_chns,
-                                                kernel_size=1, stride=1, padding=0),
-                                      nn.BatchNorm2d(out_chns),
-                                      nn.ReLU6())
-
-        def forward(self, x):
-            return self.conv(x)
-
-    class MobileNetV2Backbone(nn.Module):
-        def __init__(self, net: nn.Module):
-            super().__init__()
-            self.feature_idx = [6, 10]
-            self.features = net.features[:11]
-            extra_l1 = DepthwiseSeparableConv(in_chns=24, out_chns=96, stride=1, padding=1)
-            extra_l2 = nn.Sequential(nn.Upsample(scale_factor=2, mode='nearest'),
-                                     DepthwiseSeparableConv(in_chns=48, out_chns=96, stride=1, padding=1))
-            self.extras = nn.ModuleList([extra_l1, extra_l2])
-
-        def forward(self, x):
-            features, res = list(), list()
-            for idx, layer in enumerate(self.features):
-                x = layer(x)
-                if idx in self.feature_idx:
-                    features.append(x)
-            res.append(self.extras[0](features[0]) + self.extras[1](features[1]))
-            return res
-    net = MobileNetV2Backbone(net)
-    import torch
-    res_ = net(torch.randn((1, 3, 256, 256)))
-    print(res_[0].shape)
-    # summary(net, (3, 256, 256), device='cpu')

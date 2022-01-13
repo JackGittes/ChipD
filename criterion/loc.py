@@ -21,6 +21,6 @@ class LOCLossRegister(object):
 
 
 def build_loc(cfg):
-    res = _BASE_LOC_LOSS.get(cfg.LOSS.IOU.NAME, NotImplemented)
-    check_implemented(res, "Expected Loc loss is not implemented given the name: {}.".format(cfg.LOSS.IOU.NAME))
+    res = _BASE_LOC_LOSS.get(cfg.LOSS.LOC_LOSS.NAME, NotImplemented)
+    check_implemented(res, "Expected Loc loss is not implemented given the name: {}.".format(cfg.LOSS.LOC_LOSS.NAME))
     return res(cfg)

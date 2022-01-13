@@ -406,7 +406,7 @@ class SSDAugmentation(object):
             ConvertFromInts(),
             ToAbsoluteCoords(),
             PhotometricDistort(),
-            Expand((0., 0., 0.)),
+            # Expand((0., 0., 0.)),
             # RandomSampleCrop(),
             RandomMirror(),
             ToPercentCoords(),

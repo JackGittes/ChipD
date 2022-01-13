@@ -1,10 +1,12 @@
-import argparse
 import torch
 import cv2
 import os
 import numpy as np
+from tqdm import tqdm
 from model import build_ssd
-from torchvision.utils import make_grid
+
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 
 def draw_bboxes(img, boxes):
@@ -27,7 +29,11 @@ def draw_bboxes(img, boxes):
         cv2.putText(img, str(score), (center[0], pt1[1] - 1), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color)
 
 
-def demo(cfg_path, weight_path, src_folder='example/source', cuda=True):
+def demo(cfg_path,
+         weight_path,
+         src_folder='example/source',
+         dst_folder='example/result',
+         cuda=True):
     file_list = os.listdir(src_folder)
 
     from utils.utils import load_config
@@ -39,7 +45,9 @@ def demo(cfg_path, weight_path, src_folder='example/source', cuda=True):
         model = model.cuda()
         model.priors = model.priors.cuda()
 
-    for item_ in file_list:
+    demo_progress = tqdm(file_list)
+    demo_progress.set_description(desc="Demo: ")
+    for item_ in demo_progress:
         full_path = os.path.join(src_folder, item_)
         if not os.path.isfile(full_path):
             continue
@@ -63,7 +71,7 @@ def demo(cfg_path, weight_path, src_folder='example/source', cuda=True):
                 coords.append(detections[i, 0])
                 res.append(coords)
         draw_bboxes(temp_img, res)
-        cv2.imwrite(os.path.join('example/result', item_), temp_img)
+        cv2.imwrite(os.path.join(dst_folder, item_), temp_img)
     return detections
 
 
@@ -73,5 +81,6 @@ if __name__ == '__main__':
     cfg_path = 'experiment/default.yml'
     weight_root = 'log/'
     full_weight_path = os.path.join(weight_root, 'latest.pth')
-    det = demo(cfg_path, weight_path=full_weight_path, cuda=True)
+    det = demo(cfg_path, weight_path=full_weight_path, cuda=True, src_folder="/home/zhaomingxin/Documents/val_im",
+               dst_folder="/home/zhaomingxin/Documents/val_result")
     e = time.time()

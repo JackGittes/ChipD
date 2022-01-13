@@ -43,8 +43,8 @@ class AirbusDetection(data.Dataset):
         image_name, target = self.ids[index]
         target = [[item[1] - item[3] / 2.,
                    item[0] - item[2] / 2.,
-                   item[1] + item[1] / 2.,
-                   item[0] + item[1] / 2.,
+                   item[1] + item[3] / 2.,
+                   item[0] + item[2] / 2.,
                    item[4]] for item in target]
 
         img_full_path = osp.join(self.root, 'AllImages', image_name)
@@ -73,8 +73,8 @@ class AirbusDetection(data.Dataset):
         image_name, target = self.ids[index]
         target = [[item[1] - item[3] / 2.,
                    item[0] - item[2] / 2.,
-                   item[1] + item[1] / 2.,
-                   item[0] + item[1] / 2.,
+                   item[1] + item[3] / 2.,
+                   item[0] + item[2] / 2.,
                    item[4]] for item in target]
         return image_name, target
 
