@@ -130,6 +130,7 @@ data/ssd_dataloader.py
 test/
 log/
 example/
+result/
 *.png
 *.jpg
 *.onnx
